@@ -1,154 +1,109 @@
-#' wrapper function for running monocle3 on default parameter
+#' Wrapper function for running monocle3 with default parameters.
 #' 
-#' https://cole-trapnell-lab.github.io/monocle3/
+#' @param sce SingleCellExperiment object.
+#' @param cluster_column The column to use for clustering.
+#' @param assay_name The name of assay. Defaults to "logcounts".
+#' @param use_auto_root Logical. Use automatic root finding.
+#' @param time_bin_column Column for time bin, required if use_auto_root is TRUE.
+#' @param time_bin_value Value within time_bin_column to define initial state.
+#' @param reduction_method Dimensionality reduction method, default is "UMAP".
+#' @param batch Logical. Remove batch effect if TRUE.
+#' @param seed Random seed for reproducibility.
 #' 
-#' @param sce a singlecellExperiment object.
-#' @param cluster_colomn the colomn when clustering in the entered sce object.
-#' @param assay_name the name of assay.
-#' @param use_auto_root do not find root using auto function.
-#' @param time_bin_column the column name of time bin.
-#' @param time_bin_value the value of time bin.
-#' @param reduction_method the reduction used, using UMAP as default.
-#' @param batch whether to remove batch effect, user can choose it personally.
-#' @param seed The random seed to use for reproducibility. Defaults to 2024-11-1.
-#' 
-#' @importFrom SummarizedExperiment assay.
-#' @importFrom SummarizedExperiment assayNames.
-
+#' @importFrom SummarizedExperiment assay assayNames
 #' @export
-
 
 runMonocle <- function(
     sce,
-    assay_name = "logcounts", ## use logcounts as default
-    use_auto_root = FALSE, ## do not find root using auto function.
-    time_bin_column = NULL, ## the column name of time bin.
-    time_bin_value, ## the value of time bin.
-    reduction_method = "UMAP", ## use UMAP as default reduction method
-    cluster_column = "clusters", ## use clusters as default when clustering
-    use_preprocess = FALSE, ## not preprocess the data as default, but can use preprocessed data in the previous pipeline
-    batch = FALSE, ## not remove batch effects as default, but can do it personally
-    num_dims = 50, ## set dims in PCA as 50 as default
-    resolution = 1e-5, ## set resolution in cell-clustering
+    assay_name = "logcounts",
+    use_auto_root = FALSE,
+    time_bin_column = NULL,
+    time_bin_value = NULL,
+    reduction_method = "UMAP",
+    cluster_column = "clusters",
+    use_preprocess = FALSE,
+    batch = FALSE,
+    num_dims = 50,
+    resolution = 1e-5,
     seed = 2024-11-1
-    ){
+){
   
-  # write a function to find root automatically
-  get_earliest_principal_node <- function(cds, time_bin_column, time_bin) {
-    
-    cell_ids <- which(colData(cds)[, time_bin_column] == time_bin)
-    
-    closest_vertex <- cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
-    closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
-    
+  set.seed(seed)
+  
+  ## Internal function to find root automatically
+  get_earliest_principal_node <- function(cds) {
+    cell_ids <- which(colData(cds)[[time_bin_column]] == time_bin_value)
+    closest_vertex <- as.matrix(cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex[colnames(cds), ])
     root_pr_nodes <- igraph::V(principal_graph(cds)[["UMAP"]])$name[
       as.numeric(names(which.max(table(closest_vertex[cell_ids, ]))))
     ]
     
-    return(root_pr_nodes)
+    if (length(root_pr_nodes) == 0) {
+      stop("No root node was found. Please specify a valid time_bin_column and time_bin_value.")
+    }
+    root_pr_nodes
   }
   
-  
-  set.seed(seed)
-  
-  ## 0. ensure the data is correctly set
-  if (!"logcounts" %in% assayNames(sce)) {
-    print("logcounts assay does not exist in the object")
-    sce <- scuttle::logNormCounts(sce)  ## use sclet function instead
+  ## Check for and normalize logcounts
+  if (!assay_name %in% assayNames(sce)) {
+    message("Logcounts assay not found; generating automatically.")
+    sce <- scuttle::logNormCounts(sce)
   }
   
-  ## 1. set data
+  ## Initialize CellDataSet
   counts_matrix <- SummarizedExperiment::assay(sce, assay_name)
-  gene_metadata <- data.frame(gene_short_name = rownames(counts_matrix))
+  gene_metadata <- data.frame(gene_short_name = rownames(counts_matrix), row.names = rownames(counts_matrix))
   cell_metadata <- as.data.frame(colData(sce))
-  rownames(gene_metadata) <- rownames(counts_matrix)
+  cds <- monocle3::new_cell_data_set(counts_matrix, cell_metadata = cell_metadata, gene_metadata = gene_metadata)
   
-  ## create cellDataset
-  cds <- monocle3::new_cell_data_set(counts_matrix,
-                                     cell_metadata = cell_metadata,
-                                     gene_metadata = gene_metadata)
-  
-  
-  ## 2. preprocess the data
+  ## Preprocess the data if necessary
   if (use_preprocess) {
-    # Normalize and preprocess the data using preprocess_cds in Monocle3
     cds <- monocle3::preprocess_cds(cds, num_dim = num_dims)
     
-    # create elbow plot, then choose the optimal number of dims
-    print("Generating elbow plot to choose optimal number of dimensions...")
+    # Elbow plot for optimal number of dimensions
+    message("Generating elbow plot...")
     print(monocle3::plot_pc_variance_explained(cds))
+    new_num_dims <- as.numeric(readline("Enter optimal number of dimensions: "))
     
-    # let user enter new dims number
-    message("Please inspect the elbow plot to choose the optimal number of dimensions.")
-    new_num_dims <- as.numeric(readline(prompt = "Enter the number of dimensions to use: "))
-    
-    # overlapped the former input
     if (!is.na(new_num_dims) && new_num_dims != num_dims) {
       num_dims <- new_num_dims
       cds <- monocle3::preprocess_cds(cds, num_dim = num_dims)
     }
     
-    # Reduce dimensionality and visualize the cells
+    # Dimensionality reduction and batch effect correction
     cds <- monocle3::reduce_dimension(cds, reduction_method = reduction_method)
-    
-    # move batch effect personally
-    while (batch && "plate" %in% colnames(colData(cds))) {
+    if (batch && "plate" %in% colnames(colData(cds))) {
       cds <- monocle3::align_cds(cds, num_dim = num_dims, alignment_group = "plate")
-      cds <- reduce_dimension(cds)
+      cds <- monocle3::reduce_dimension(cds, reduction_method = reduction_method)
     }
     
-    # Group cells into cluster
     cds <- monocle3::cluster_cells(cds, resolution = resolution)
-  }
-  
+  } 
   else {
-    ## user can use their own pre-processed data instead of monocle3 default
     if (!is.null(SingleCellExperiment::reducedDims(sce))) {
-      reducedDims(cds)$UMAP <- reducedDims(sce)[[reduction_method]] ## using UMAP as default
-    }
+      reducedDims(cds)$UMAP <- reducedDims(sce)[[reduction_method]]
+    } 
     else {
-      stop("The object you entered does not contain reduced dimensions")
+      stop("Provided SCE object lacks reduced dimensions.")
     }
     
     if (cluster_column %in% colnames(colData(sce))) {
       cds@clusters$UMAP$clusters <- factor(cell_metadata[[cluster_column]])
-    }
+    } 
     else {
-      stop("The object you entered does not contain specified cluster information")
+      stop("Specified cluster column not found in SCE object.")
     }
-    
   }
-  ## 3. trajectory analysis
-  cds <- monocle3::learn_graph(cds)
   
-  ## 4. pseudotime analysis
-  # decide whether to find root automatically
-  if (use_auto_root && !is.null(time_bin_column)) {
-    root_pr_nodes <- get_earliest_principal_node(cds, time_bin_column, time_bin_value)
+  ## Trajectory and Pseudotime Analysis
+  cds <- monocle3::learn_graph(cds)
+  if (use_auto_root && !is.null(time_bin_column) && !is.null(time_bin_value)) {
+    root_pr_nodes <- get_earliest_principal_node(cds)
     cds <- order_cells(cds, root_pr_nodes = root_pr_nodes)
   } 
   else {
-    # choose root by hand
     cds <- order_cells(cds)
   }
-
+  
   return(cds)
 }
-
-
-## test
-cds <- runMonocle(sce, use_preprocess = TRUE)
-
-## visulization
-monocle3::plot_cells(cds,
-           color_cells_by = "cluster",
-           label_groups_by_cluster=FALSE,
-           label_leaves=FALSE,
-           label_branch_points=FALSE)
-
-monocle3::plot_cells(cds,
-                     color_cells_by = "pseudotime",
-                     label_cell_groups=FALSE,
-                     label_leaves=FALSE,
-                     label_branch_points=FALSE,
-                     graph_label_size=1.5)
