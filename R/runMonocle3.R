@@ -43,7 +43,7 @@ runMonocle <- function(
          reduction_method, " before running the function.")
   }
   
-  # ensure the colnames of sce are not null(for running cluster_cells())
+  # Assign cell names if missing
   if(is.null(colnames(sce))){
     message("The sce is missing cell names, which are required by cluster_cells; 
             generating automatically.")
@@ -103,4 +103,5 @@ runMonocle <- function(
   message("Monocle3 trajectory and pseudotime analysis completed.")
   return(cds)
 }
-
+  
+  
