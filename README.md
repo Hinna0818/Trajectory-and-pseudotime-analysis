@@ -4,10 +4,10 @@
 Trajectory and pseudotime analysis for sclet
 
 ## Including packages and algorithm
-Monocle3
-Slingshot
-Palantir
-SCP
+Monocle3  
+Slingshot  
+Palantir  
+SCP  
 SeuratExtend
 
 ## References
