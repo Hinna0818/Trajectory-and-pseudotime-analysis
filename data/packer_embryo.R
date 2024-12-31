@@ -1,5 +1,5 @@
 ## preprocessing the example data and convert it into SingleCellExperiment object
-## The original data is from 
+## The original data is from https://github.com/cole-trapnell-lab/monocle3/blob/master/examples/c_elegans_embryo.R
 
 ## load data
 expression_matrix <- readRDS("packer_embryo_expression.rds")
