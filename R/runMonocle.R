@@ -2,8 +2,6 @@
 #' 
 #' @param sce SingleCellExperiment object.
 #' @param assay The name of assay. Defaults to "counts".
-#' @param use_auto_root Choose roots automatically in pseudotime analysis. Defaults to FALSE.
-#' @param time_bin Character. The time bin to use for automatic root selection, e.g., "130-170".
 #' @param reduction Dimensionality reduction method to use, default is "UMAP".
 #' @param clusters The clustering result in SingleCellExperiment object. Defaults to NULL, in which case use Monocle clusters is used.
 #' @param graph The name of graph slot in "metadata" of a SingleCellExperiment object. Defaults to NULL, in which case use Monocle graph is used.
@@ -11,7 +9,7 @@
 #' @param num_iter The number of iterations for cell clustering. Defaults to 2.
 #' @param resolution The resolution parameter for cell clustering. Defaults to NULL.
 #' @param cluster_method The clustering method to use. Defaults to "louvain".
-#' @param k The number of nearest neighbors to consider for clustering. Defaults to 20.
+#' @param k The number of nearest neighbors to consider for clustering. Defaults to 50.
 #' @param use_partition Whether to use partitions to learn disjoint graph in each partition.
 #' @param close_loop Whether to close loops in the graph. Defaults to TRUE.
 #' @param root_pr_nodes The root nodes to order cells. If not specified, user will be prompted for input. Defaults to NULL.
@@ -25,8 +23,6 @@
 runMonocle <- function(
     sce,
     assay = "counts",
-    use_auto_root = FALSE,
-    time_bin = "130-170",
     reduction = "UMAP",
     clusters = NULL,
     graph = NULL,
