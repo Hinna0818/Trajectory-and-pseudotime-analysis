@@ -39,4 +39,7 @@ sce <- SingleCellExperiment(
 reducedDims(sce)$PCA <- as.matrix(Embeddings(srt, "PCA"))
 reducedDims(sce)$UMAP <- as.matrix(Embeddings(srt, "UMAP"))
 
+# add clustering result
+colLabels(sce) <- colData(sce)$SubCellType
+
 saveRDS(sce, file = "pancreas_sub_sce.rds")
