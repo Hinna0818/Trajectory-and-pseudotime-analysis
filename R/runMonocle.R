@@ -3,7 +3,7 @@
 #' @param sce SingleCellExperiment object.
 #' @param assay The name of assay. Defaults to "counts".
 #' @param reduction Dimensionality reduction method to use, default is "UMAP".
-#' @param clusters The clustering result in SingleCellExperiment object. Defaults to NULL, in which case use Monocle clusters is used.
+#' @param clusters The clustering result in SingleCellExperiment object. Defaults to NULL, in which case use Monocle clusters.
 #' @param graph The name of graph slot in "metadata" of a SingleCellExperiment object. Defaults to NULL, in which case use Monocle graph is used.
 #' @param partition_qval The q-value threshold for partitioning cells. Defaults to 0.05.
 #' @param num_iter The number of iterations for cell clustering. Defaults to 2.
@@ -12,8 +12,8 @@
 #' @param k The number of nearest neighbors to consider for clustering. Defaults to 50.
 #' @param use_partition Whether to use partitions to learn disjoint graph in each partition.
 #' @param close_loop Whether to close loops in the graph. Defaults to TRUE.
-#' @param root_pr_nodes The root nodes to order cells. If not specified, user will be prompted for input. Defaults to NULL.
-#' @param root_cells The root cells to order cells. If not specified, user will be prompted for input. Defaults to NULL.
+#' @param root_pr_nodes The root nodes to order cells. User will be prompted for input before ordering cells. Defaults to NULL.
+#' @param root_cells The root cells to order cells. User will be prompted for input before ordering cells. Defaults to NULL.
 #' @param seed Random seed for reproducibility.
 #' 
 #' @importFrom igraph as_data_frame
@@ -31,7 +31,7 @@ runMonocle <- function(
     resolution = NULL,
     cluster_method = "louvain",
     k = 50,
-    use_partition = NULL,
+    use_partition = TRUE,
     close_loop = TRUE,
     root_pr_nodes = NULL,
     root_cells = NULL,
@@ -45,7 +45,7 @@ runMonocle <- function(
   ## check the data before setting a cds object
   # ensure the reduction method is used before setting up a cds object
   if(! reduction %in% names(reducedDims(sce))){
-    stop("Provided SCE object lacks the specified reduction method. Please compute ", 
+    stop("The provided SCE object lacks the specified reduction method. Please compute ", 
          reduction, " before running the function.")
   }
   
@@ -121,7 +121,7 @@ runMonocle <- function(
       cds <- monocle3::cluster_cells(cds,
                                      reduction_method = "UMAP", partition_qval = partition_qval, k = k, cluster_method = cluster_method, 
                                      num_iter = num_iter, resolution = resolution)
-      cds@clusters[["UMAP"]]$clusters <- as.factor(clusters)
+      cds@clusters[["UMAP"]]$clusters <- as.factor(colData(sce)[[clusters]])
       cds[["clusters"]] <- cds@clusters[["UMAP"]]$clusters
     }
   }
@@ -132,19 +132,18 @@ runMonocle <- function(
     cds[["clusters"]] <- cds@clusters[["UMAP"]]$clusters
   }
   
-  sce[["Monocle3_clusters"]] <- cds@clusters[["UMAP"]]$clusters
-  sce[["Monocle3_partitions"]] <- cds@clusters[["UMAP"]]$partitions
+  sce[["Monocle_clusters"]] <- cds@clusters[["UMAP"]]$clusters
+  sce[["Monocle_partitions"]] <- cds@clusters[["UMAP"]]$partitions
   
   
-  ## form a learn-graph for trajectory 
-  if (is.null(use_partition)) {
-    use_partition <- select.list(c(TRUE, FALSE), title = "Whether to use partitions to learn disjoint graph in each partition?")
-    if (use_partition == "" || length(use_partition) == 0) {
-      use_partition <- TRUE
-    }
-  }
-  
+  ## learn graph
   cds <- monocle3::learn_graph(cds = cds, use_partition = use_partition, close_loop = close_loop)
+  
+  ## store graph results
+  mst_branch_nodes <- monocle3:::branch_nodes(cds, "UMAP")
+  mst_leaf_nodes <- monocle3:::leaf_nodes(cds, "UMAP")
+  mst_root_nodes <- monocle3:::root_nodes(cds, "UMAP")
+  pps <- c(mst_branch_nodes, mst_leaf_nodes, mst_root_nodes)
   
   ## pseudotime analysis
   if (is.null(root_pr_nodes) && is.null(root_cells)) {
@@ -156,9 +155,9 @@ runMonocle <- function(
   cds <- monocle3::order_cells(cds, root_pr_nodes = root_pr_nodes, root_cells = root_cells)
   pseudotime <- cds@principal_graph_aux[["UMAP"]]$pseudotime
   pseudotime[is.infinite(pseudotime)] <- NA
-  sce[["Monocle3_Pseudotime"]] <- pseudotime
+  sce[["Monocle_Pseudotime"]] <- pseudotime
   
-  sce@metadata$Monocle3 <- list(cds = cds)
+  sce@metadata$Monocle <- list(cds = cds)
   
   return(sce)
 }
