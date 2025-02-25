@@ -1,9 +1,18 @@
-## change seurat object into sce object
-# raw data from https://github.com/zhanghao-njmu/SCP/blob/b9b0eb7a7bf2c2c4b2262e73e09d7ebd515c7da0/data/pancreas_sub.rda
-# script https://zhanghao-njmu.github.io/SCP/index.html
+## This script converts a Seurat object into a SingleCellExperiment (SCE) object.
+## The raw data is from https://github.com/zhanghao-njmu/SCP.
+##
+## Input:
+## a Seurat object (pancreas_sub) containing the raw count matrix, log-transformed count matrix,
+##   cell metadata, and gene metadata.
+##
+## Output:
+## a SingleCellExperiment object (sce) saved as an RDS file ("pancreas_sub_sce.rds").
+##
+## Import from SingleCellExperiment, Seurat
 
 # load data
 library(SingleCellExperiment)
+library(Seurat)
 rm(list = ls())
 load("pancreas_sub.rda")
 srt <- pancreas_sub
