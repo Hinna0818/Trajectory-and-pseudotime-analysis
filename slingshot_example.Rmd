@@ -1,0 +1,49 @@
+---
+title: "test_slingshot"
+author: "Hinna"
+date: "2025-02"
+output: html_document
+---
+
+## 导入数据与包
+```{r}
+rm(list = ls())
+pancreas <- readRDS("./pancreas_sub_sce.rds")
+source("./runSlingshot.R")
+```
+
+## 可视化UMAP(无轨迹版)
+```{r}
+ggsc::sc_dim(pancreas, reduction = "UMAP") + ggsc::sc_dim_geom_label()
+```
+
+
+## 使用RunSlingshot进行轨迹分析
+```{r}
+source("./runSlingshot.R")
+p_new <- RunSlingshot(sce = pancreas, group = "SubCellType", reduction = "UMAP")
+```
+
+## 可视化轨迹
+```{r}
+## ggsc可视化一个不含轨迹的umap图
+ggsc::sc_dim(p_new, reduction = "UMAP")+ ggsc::sc_dim_geom_label(
+    geom = shadowtext::geom_shadowtext,
+    color='black', 
+    bg.color='white'
+  )
+```
+
+
+```{r}
+## ggsc可视化细胞轨迹
+source("./cdp.R")
+p1 <- CDP(p_new, group = "SubCellType")  + ggsc::sc_dim_geom_label(
+    geom = shadowtext::geom_shadowtext,
+    color='black', 
+    bg.color='white'
+  )
+print(p1)
+```
+
+
