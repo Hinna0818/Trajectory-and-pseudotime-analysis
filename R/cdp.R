@@ -5,8 +5,9 @@
 #' 
 #' @param sce A SingleCellExperiment object containing the results from Slingshot.
 #' @param dims A vector specifying the dimensions of the reduction result to plot, default the top 2 dimensions are used.
-#' @param The name of the column in colData(sce) containing cluster labels.
-#' @param reduction The name of the dimensionality reduction to plot. Default is `"UMAP"`, but it can be changed to other reductions like `"PCA"` or `"tSNE"`.
+#' @param group The name of the column in colData(sce) containing cluster labels.
+#' @param reduction The name of the dimensionality reduction to plot. Default is `"UMAP"`.
+#' @param lineages The lineages plotted in this function. Default all lineages are used.
 #' @param cells A vector of cell names (IDs) to be included in the plot. If `NULL`, all cells are plotted.
 #' @param slot The assay slot to use for dimensionality reduction, default is `"data"`. Alternatively, can be set to `"logcounts"`, `"counts"`, etc.
 #' @param mapping A mapping for aesthetics such as `color`, `size`, etc., passed to `ggplot2`. By default, `NULL` and `color` will be mapped automatically.
@@ -18,7 +19,6 @@
 #' 
 #' @examples
 #' \dontrun{
-#' # Assuming `sce` is a SingleCellExperiment object with Slingshot results
 #' p <- CDP(sce = sce, group = "label", reduction = "UMAP")
 #' print(p)
 #' }
@@ -36,6 +36,7 @@ CDP <- function(
     dims = c(1, 2),
     group,
     reduction = "UMAP",
+    lineages = names(sce@metadata$slingshot_info@curves),
     cells = NULL,
     slot = "data",
     mapping = NULL,
@@ -60,12 +61,15 @@ CDP <- function(
   
   for (i in 1:length(sce@metadata$slingshot_info@curves)) {
     temp <- as.data.frame(sce@metadata$slingshot_info@curves[[i]]$s)
-    temp$lineage <- paste0("Lineage ", i)
+    temp$lineage <- paste0("Lineage", i)
     lineage_data <- rbind(lineage_data, temp)
   }
   
+  # Subset lineage_data based on the input lineage
+  lineage_data <- subset(lineage_data, lineage %in% lineages)
+  
   # Existing UMAP plot with labels
-  p1 <- sc_dim(object = sce, reduction = reduction, cells = cells, slot = slot,
+  p1 <- ggsc::sc_dim(object = sce, reduction = reduction, cells = cells, slot = slot,
                mapping = mapping, geom = geom)  +
     geom_path(data = lineage_data, aes(x = umap_1, y = umap_2, color = lineage, group = lineage),
               arrow = arrow(type = "open", length = unit(0.1, "inches")),
