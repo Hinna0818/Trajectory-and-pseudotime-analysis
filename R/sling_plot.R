@@ -51,8 +51,7 @@ Genecurve_plot <- function(
   d2 <- na.omit(d2)
   
   ## baseplot
-  p <- build_base_plot(point, df_melt = d2, ncol)
-  
+  p <- base_plot(point, df_melt = d2, ncol)
   
   ## predict gene expression among lineages
   predictions <- data.frame()
@@ -70,26 +69,6 @@ Genecurve_plot <- function(
   } else {
     predictions <- d2
   }
-  
-  
-  #for (gene in features) {
-    #for (fate in fate_names) {
-      ## subset specific gene and lineages data from d2
-      #subset_d2 <- d2[d2$Gene == gene & d2$cell_fate == fate,]
-      
-      # using GAM model to predict pseudotime expression
-      #model <- mgcv::gam(Expression ~ s(Pseudotime), data = subset_d2)
-      
-      #pseudo_seq <- seq(min(subset_d2$Pseudotime), max(subset_d2$Pseudotime), length.out = 200)
-      #grid_df <- data.frame(Pseudotime = pseudo_seq, Gene = gene, cell_fate = fate, Expression = NA)
-      
-      # add prediction result to final dataframe
-      #grid_df$Predicted <- predict(model, newdata = grid_df)
-      #predictions <- rbind(predictions, grid_df)
-    #}
-  #}
-  
-  #predictions$Gene <- factor(predictions$Gene, levels = unique(predictions$Gene))
   
   p <- add_plot_layer(p, method, line.size, se = se, predictions)
   
@@ -119,7 +98,7 @@ add_plot_layer <- function(p, method, line.size, se, data_for_plot) {
 }
 
 
-build_base_plot <- function(
+base_plot <- function(
     point = FALSE, 
     df_melt, 
     alpha, 
