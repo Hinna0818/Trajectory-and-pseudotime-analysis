@@ -1,3 +1,24 @@
+#' Generate gene expression curves across pseudotime
+#'
+#' This function visualizes the expression of specified genes across pseudotime using either 
+#' smoothed line plots or GAM (Generalized Additive Models) predictions. It generates a 
+#' ggplot showing the expression of selected genes along pseudotime for different cell fates.
+#'
+#' @param sce A SingleCellExperiment object containing the expression data and pseudotime.
+#' @param assay_name The assay to use for extracting gene expression data (default: "logcounts").
+#' @param features A vector of gene names for which to plot expression curves.
+#' @param lineaegs A vector of cell fates to visualize (optional). If NULL, all available fates will be used.
+#' @param pseudotime.data The column name in the SingleCellExperiment object containing pseudotime data (default: "slingPseudotime").
+#' @param method A character vector specifying the method for curve fitting. Options are "smooth" (default) or "gam" (Generalized Additive Model).
+#' @param point A logical value indicating whether to include points for individual cells (default: FALSE).
+#' @param line.size Line thickness for the plot (default: NULL).
+#' @param alpha Transparency for the points in the plot (default: 0.5).
+#' @param size Size of the points in the plot (default: 1).
+#' @param ncol Number of columns to use in facet_wrap (default: NULL).
+#' @param se A logical value indicating whether to include the standard error for smoothing (default: TRUE).
+#'
+#' @return A ggplot object displaying gene expression curves across pseudotime.
+#' @export
 Genecurve_plot <- function(
     sce,
     assay_name = "logcounts",
@@ -17,6 +38,10 @@ Genecurve_plot <- function(
   library(SingleCellExperiment)
   library(reshape2)
   
+  if(! "logcounts" %in% assayNames(sce)){
+    sce <- NormalizeData(sce)
+  }
+  
   # Ensure that pseudotime data is available
   if (!pseudotime.data %in% colnames(colData(sce))) {
     stop("The specified pseudotime data is not available in the SCE object.")
@@ -30,10 +55,6 @@ Genecurve_plot <- function(
   gdf <- t(assay(sce, assay_name))
   gdf <- as.data.frame(gdf[, features])
   colnames(gdf) <- features
-  
-  #gdf <- as.data.frame(assay(sce, assay_name)[features, ])
-  #colnames(gdf) <- features
-  
   df <- cbind(pseudo, gdf)
   
   ## reshape data
@@ -76,9 +97,23 @@ Genecurve_plot <- function(
 }
 
 
+
+#' Add plot layers based on method choice
+#'
+#' This function adds the appropriate plot layer to the base plot depending on the selected method. 
+#' It either adds a GAM-based line plot or a smoothed curve for the gene expression across pseudotime.
+#'
+#' @param p The base ggplot object.
+#' @param method A character vector specifying the plot method, either "smooth" or "gam".
+#' @param line.size Size of the plot line (default: NULL).
+#' @param se A logical value indicating whether to display the standard error (default: TRUE).
+#' @param data_for_plot The data used for plotting, either predictions or raw data.
+#'
+#' @return A ggplot object with the added plot layer.
+#' @export
 add_plot_layer <- function(p, method, line.size, se, data_for_plot) {
+  
   if (method[1] == "gam") {
-    
     ## using prediction result to plot
     p <- p + geom_line(
       data = data_for_plot,
@@ -86,7 +121,6 @@ add_plot_layer <- function(p, method, line.size, se, data_for_plot) {
       size = line.size)  
   } 
   else if (method[1] == "smooth") {
-    
     # using actual gene expression data to plot
     p <- p + geom_smooth(
       data = data_for_plot,
@@ -98,6 +132,19 @@ add_plot_layer <- function(p, method, line.size, se, data_for_plot) {
 }
 
 
+#' Create the base plot for gene expression over pseudotime
+#'
+#' This function generates the base plot framework, which includes labels, faceting by gene, and 
+#' basic styling. It can optionally add points to represent individual cell data.
+#'
+#' @param point A logical value indicating whether to add points for individual cells (default: FALSE).
+#' @param df_melt A data frame containing the melted version of the gene expression data.
+#' @param alpha The transparency level for points (default: 0.5).
+#' @param size The size of the points (default: 1).
+#' @param ncol The number of columns for faceting (default: NULL).
+#'
+#' @return A ggplot object representing the base plot.
+#' @export
 base_plot <- function(
     point = FALSE, 
     df_melt, 
@@ -124,6 +171,18 @@ base_plot <- function(
   return(p)
 }
 
+
+#' Perform GAM analysis on gene expression data
+#'
+#' This function fits a Generalized Additive Model (GAM) to the gene expression data for each
+#' gene and lineage, predicting gene expression across pseudotime.
+#'
+#' @param df_melt A data frame containing melted gene expression data, including pseudotime and cell fate.
+#' @param features A vector of gene names to analyze.
+#' @param fate_names A vector of cell fate names to consider for each gene.
+#'
+#' @return A data frame with predicted gene expression values based on the fitted GAM models.
+#' @export
 gam_analysis_SCE <- function(df_melt, features, fate_names) {
   
   library(mgcv)
@@ -131,6 +190,7 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
   
   for (gene in features){
     for (fate in fate_names){
+      
       # subset specific gene and lineages data from d2
       subset_df <- df_melt[df_melt$Gene == gene & df_melt$cell_fate == fate, ]
   
