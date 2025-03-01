@@ -38,7 +38,7 @@ Genecurve_plot <- function(
   library(SingleCellExperiment)
   library(reshape2)
   
-  if(! "logcounts" %in% assayNames(sce)){
+  if( !"logcounts" %in% assayNames(sce)){
     sce <- NormalizeData(sce)
   }
   
@@ -263,7 +263,7 @@ pseudo_heatmap <- function(
     stop("SCE lacks pseudotime data. Please run 'runSlingshot' before this function.")
   }
   
-  if(! "logcounts" %in% assayNames(sce)){
+  if( !"logcounts" %in% assayNames(sce)){
     sce <- NormalizeData(sce)
   }
   
