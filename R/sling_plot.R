@@ -188,6 +188,8 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
   library(mgcv)
   library(SingleCellExperiment)
   
+  predictions <- data.frame()
+  
   for (gene in features){
     for (fate in fate_names){
       
@@ -211,81 +213,209 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
 }
 
 
-#' Visualize pseudotime data on reduction plots
+#' Plot gene expression heatmap along pseudotime trajectory
 #'
-#' @param sce A SingleCellExperiment object after runSlingshot which contains the pseudotime and reduction data.
-#' @param reduction A string specifying the reduction method to be used for plotting. Default is `NULL`.
-#' @param pseudotime The name of the column in the colData of `sce` that contains the pseudotime data. Default is `"slingPseudotime"`.
-#' @param ... Additional parameters to be passed to `ggplot2` and other plot settings.
+#' This function generates a heatmap of gene expression along a given pseudotime trajectory, 
+#' with options for scaling, sorting, and lineage selection. It also handles genes with all 
+#' `NaN` expression values by issuing a warning and removing them from the analysis.
 #'
-#' @return A `ggplot` object representing the pseudotime visualization.
+#' @param sce A `SingleCellExperiment` object containing gene expression data and pseudotime information.
+#' @param features A character vector of gene names to be visualized in the heatmap.
+#' @param assay_name A string specifying the assay to use for gene expression data. Default is `"logcounts"`.
+#' @param pseudotime.data A string specifying the pseudotime data column in `colData(sce)`. Default is `"slingPseudotime"`.
+#' @param lineage A string specifying the lineage (cell fate) for the pseudotime trajectory. Default is `NULL`, in which case the first column of the pseudotime data is used.
+#' @param scale A logical indicating whether to scale the gene expression values. Default is `TRUE`.
+#' @param sort A logical indicating whether to sort genes by gradient of expression. Default is `TRUE`.
 #'
-#' @examples
-#' p <- pseudo_plot(sce = sce, reduction = "UMAP")
-#' print(p)
+#' @return A `ComplexHeatmap` object representing the gene expression heatmap.
 #'
 #' @import ggplot2
+#' @import reshape2
 #' @import SingleCellExperiment
-#' @importFrom tidyr pivot_longer
-#' @importFrom viridis scale_color_viridis_c
+#' @import ComplexHeatmap
+#' @import dplyr
+#'
+#' @examples
+#' genes <- unique(rownames(sce)) |> head(10)
+#' pseudo_heatmap(sce, features = genes, lineage = "Lineage1")
 #'
 #' @export
-pseudo_plot <- function(
-    sce,
-    reduction = NULL,
-    pseudotime = "slingPseudotime",
-    ...){
+pseudo_heatmap <- function(
+    sce, 
+    features,
+    assay_name = "logcounts",
+    pseudotime.data = "slingPseudotime",
+    lineage = NULL,
+    scale = TRUE,
+    sort = TRUE){
   
-  library(SingleCellExperiment)
   library(ggplot2)
-  
-  reduction <- match.arg(reduction, c("UMAP", "PCA", "tSNE"))
+  library(reshape2)
+  library(SingleCellExperiment)
+  library(ComplexHeatmap)
+  library(dplyr)
   
   if( !is(sce, "SingleCellExperiment")){
     stop("The input must be a SingleCellExperiment object.")
   }
   
-  if( !pseudotime %in% colnames(colData(sce))){
+  if( !pseudotime.data %in% colnames(colData(sce))){
     stop("SCE lacks pseudotime data. Please run 'runSlingshot' before this function.")
   }
   
+  if(! "logcounts" %in% assayNames(sce)){
+    sce <- NormalizeData(sce)
+  }
   
   ## extract pseudotime data
-  sling <- sce$slingPseudotime
-  sling$cell <- rownames(sling)
-  d2 <- tidyr::pivot_longer(sling, 
-                            cols = starts_with("Lineage"),
-                            names_to = "Lineage", 
-                            values_to = "Pseudotime")
+  if (is.null(features) || length(features) == 0) {
+    stop("Please provide at least one gene in the 'features' argument.")
+  }
   
-  ## extract reduction data
-  reduction_data <- as.data.frame(reducedDims(sce)[[reduction]])
-  reduction_data$cell <- rownames(reduction_data)
+  if (length(lineage) > 1){
+    stop("Please provide only one lineage at a time")
+  }
   
-  ## merge pseudotime data and reduction data
-  merged <- merge(d2, reduction_data, by = "cell")
+  pseudo <- colData(sce)[[pseudotime.data]]
+  pseudo <- as.data.frame(pseudo)
+  fate_names <- colnames(pseudo)
   
-  ## use ggplot2 to plot psedotime data of cells
-  p <- ggplot(merged, aes(x = umap_1, y = umap_2, color = Pseudotime)) +
-    geom_point() +
-    facet_wrap(~Lineage, ncol = 3) +  
-    scale_color_viridis_c(option = "C") + 
-    theme_bw() +
-    theme(
-      axis.text = element_blank(),    
-      axis.title = element_blank(),   
-      axis.ticks = element_blank(),   
-      panel.grid = element_blank(),   
-      strip.text = element_text(size = 12, face = "bold"),  
-      legend.position = "right",      
-      legend.title = element_text(size = 12),  
-      legend.text = element_text(size = 10)    
-    ) +
-    labs(
-      title = NULL,  
-      x = NULL,      
-      y = NULL       
-    )
+  ## extract gene expression data
+  gene_expression <- t(assay(sce, assay_name))
+  gene_expression <- as.data.frame(gene_expression[, features])
+  colnames(gene_expression) <- features
+  
+  ## prepare lineage input
+  ## when lineage is not provided, use the first cell fate name as default
+  if (is.null(lineage)) {
+    lineage <- fate_names[1]
+  }
+  
+  if ( !lineage %in% fate_names) {
+    stop(paste("The provided lineage '", lineage, "' is not valid. Please choose one from the following cell fates:", paste(fate_names, collapse = ", "), "."))
+  }
+  
+  pseudo_new <- pseudo[, lineage, drop = FALSE]
+  df <- cbind(pseudo_new, gene_expression)
+  
+  
+  ## melt df to the format which is prepared for ploting heatmap
+  df_melt_gene <- reshape2::melt(
+    df, 
+    id.vars = colnames(pseudo_new),
+    measure.vars = features,
+    variable.name = "Gene",
+    value.name = "Expression"
+  )
+  
+  df_melt <- reshape2::melt(
+    df_melt_gene, 
+    d.vars = c("Gene", "Expression"),
+    measure.vars = lineage,
+    variable.name = "cell_fate",
+    value.name = "Pseudotime"
+  )
+  
+  df_melt$Gene <- factor(df_melt$Gene, levels = unique(df_melt$Gene))
+  df_melt <- na.omit(df_melt)
+  
+  
+  ## predict gene expression
+  predictions <- gam_analysis_SCE(df_melt = df_melt, features = features, fate_names = lineage)
+  
+  if(scale){
+    predictions$Predicted <- ave(predictions$Predicted, predictions$Gene, FUN = rescale)
+  }
+  
+  ## prepare heatmap matrix
+  heatmap_matrix <- reshape2::dcast(predictions, Gene ~ Pseudotime, value.var = "Predicted")
+  
+  heatmap_matrix <- as.matrix(heatmap_matrix[, -1])
+  rownames(heatmap_matrix) <- levels(predictions$Gene)
+  
+  ## check if some all-NaN genes exist
+  nan_genes <- apply(heatmap_matrix, 1, function(row) all(is.na(row)))
+  if (any(nan_genes)) {
+    warning("The following genes have all NaN expression values and will be removed: ",
+            paste(rownames(heatmap_matrix)[nan_genes], collapse = ", "))
+    heatmap_matrix <- heatmap_matrix[!nan_genes, , drop = FALSE]
+  }
+  
+  
+  ## choose whether to sort the matrix
+  if(sort && nrow(heatmap_matrix) > 1){
+    gradient_scores <- apply(heatmap_matrix, 1, compute_gradient)
+    
+    sort_df <- data.frame(
+      row = rownames(heatmap_matrix),
+      max_position = apply(heatmap_matrix, 1, which.max),
+      gradient = gradient_scores
+    ) 
+    
+    # Arrange by gradient first and then by max position second
+    sort_df <- sort_df %>%
+      arrange(gradient) %>%
+      arrange(max_position)
+    
+    if (nrow(sort_df) > 0) {
+      heatmap_matrix <- heatmap_matrix[sort_df$row, , drop = FALSE]
+    }
+  }
+  
+  ## gene expression heatmap
+  title_fill <- ifelse(scale, "Relative\nExpression", "Expression")
+  
+  
+  p <- ComplexHeatmap::Heatmap(heatmap_matrix, 
+                               name = "Expression", 
+                               col = viridis::viridis(100),  
+                               show_column_names = FALSE, 
+                               show_row_names = TRUE,
+                               row_dend_width = unit(2, "mm"),
+                               height = unit(6, "cm"),  
+                               column_title = lineage,  
+                               column_title_gp = gpar(fontsize = 14, fontface = "bold"),
+                               row_title = "Gene",
+                               row_title_gp = gpar(fontsize = 12, fontface = "bold"),
+                               heatmap_legend_param = list(title = title_fill))
   
   return(p)
+}
+
+
+#' Rescale values to the range [0, 1]
+rescale <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+
+#' Compute gradient of a vector around the peak position
+#'
+#' This function calculates the gradient score of a numeric vector `row` by first identifying the position
+#' of the peak (maximum value) in the vector. It then computes the average difference between subsequent values
+#' in a small window around the peak. If all values in the vector are `NaN` or all zeros, the function returns `NA`.
+#'
+#' @param row A numeric vector representing the expression values of a gene across pseudotime.
+#' @param n The window size (in number of elements) around the peak to calculate the gradient. Default is 10.
+#'
+#' @return A numeric value representing the average gradient score around the peak, or `NA` if the row is 
+#'         all `NaN` or all zeros.
+#' 
+#' @export
+compute_gradient <- function(row, n=10) {
+  if (all(is.nan(row)) || all(row == 0)) {
+    return(NA)  
+  }
+  
+  peak_position <- which.max(row)
+  left_bound <- max(1, peak_position - n)
+  right_bound <- min(length(row), peak_position + n)
+  
+  # Extract the sub-section of the row around the peak
+  sub_section <- row[left_bound:right_bound]
+  
+  # Calculate the gradient score as the average difference between subsequent positions
+  gradient_score <- mean(diff(sub_section))
+  
+  return(gradient_score)
 }
