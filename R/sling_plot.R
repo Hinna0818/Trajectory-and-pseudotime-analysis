@@ -1,3 +1,181 @@
+#' Visualize Single-Cell Trajectories on the basis of ggsc package
+#' 
+#' This function visualizes single-cell trajectories using UMAP (or other specified reduction method) and overlays the trajectory curves. 
+#' The cells are colored by their respective lineage trajectories and the lineages are drawn as curves based on Slingshot's inferred trajectories.
+#' 
+#' @param sce A SingleCellExperiment object containing the results from Slingshot.
+#' @param dims A vector specifying the dimensions of the reduction result to plot, default the top 2 dimensions are used.
+#' @param group The name of the column in colData(sce) containing cluster labels.
+#' @param reduction The name of the dimensionality reduction to plot. Default is `"UMAP"`.
+#' @param lineages The lineages plotted in this function. Default all lineages are used.
+#' @param cells A vector of cell names (IDs) to be included in the plot. If `NULL`, all cells are plotted.
+#' @param slot The assay slot to use for dimensionality reduction, default is `"data"`. Alternatively, can be set to `"logcounts"`, `"counts"`, etc.
+#' @param mapping A mapping for aesthetics such as `color`, `size`, etc., passed to `ggplot2`. By default, `NULL` and `color` will be mapped automatically.
+#' @param geom A ggplot2 geometry to use for plotting. Default is `sc_geom_point`, which generates scatter points.
+#' @param linewidth A numeric value indicating the line width for the trajectory paths. Default is 0.9.
+#' @param ... Additional parameters passed to `ggplot2` plotting functions or the geometry.
+#' 
+#' @return A ggplot object displaying the UMAP plot with overlaid trajectories.
+#' 
+#' @examples
+#' \dontrun{
+#‘ pancreas <- readRDS("./pancreas_sub_sce.rds")
+#’ pancreas <- RunSlingshot(sce = pancreas, group = "label", reduction = "UMAP")
+#' p <- lineage_plot(sce = pancreas, group = "label", reduction = "UMAP")
+#' print(p)
+#' }
+#' 
+#' @import slingshot
+#' @import SingleCellExperiment
+#' @import ggplot2
+#' @import ggsc
+#' 
+#' @export
+lineage_plot <- function(
+    sce,
+    dims = c(1, 2),
+    group,
+    reduction = "UMAP",
+    lineages = NULL,
+    cells = NULL,
+    slot = "data",
+    mapping = NULL,
+    geom = sc_geom_point,
+    linewidth = 0.9, ...){
+  
+  library(slingshot)
+  library(SingleCellExperiment)
+  library(ggplot2)
+  library(ggsc)
+  
+  if(is.null(lineages)){
+    lineages <- names(sce@metadata$slingshot_info@curves)
+  }
+  
+  ## set the lineage colors (adjust to ensure enough colors for the number of lineages)
+  num_trajectories <- length(sce@metadata$slingshot_info@lineages)
+  
+  
+  ## set the lineage data for the input of ggplot2
+  lineage_data <- data.frame()
+  
+  for (i in 1:length(sce@metadata$slingshot_info@curves)) {
+    temp <- as.data.frame(sce@metadata$slingshot_info@curves[[i]]$s)
+    temp$lineage <- paste0("Lineage", i)
+    lineage_data <- rbind(lineage_data, temp)
+  }
+  
+  # Subset lineage_data based on the input lineage
+  lineage_data <- subset(lineage_data, lineage %in% lineages)
+  
+  # Existing UMAP plot with labels
+  p1 <- ggsc::sc_dim(object = sce, reduction = reduction, cells = cells, slot = slot,
+                     mapping = mapping, geom = geom)  +
+    geom_path(data = lineage_data, aes(x = umap_1, y = umap_2, color = lineage, group = lineage),
+              arrow = arrow(type = "open", length = unit(0.1, "inches")),
+              linewidth = linewidth) 
+  
+  return(p1)
+}
+
+#' Visualize pseudotime data on reduction plots
+#'
+#' @param sce A SingleCellExperiment object after runSlingshot which contains the pseudotime and reduction data.
+#' @param reduction A string specifying the reduction method to be used for plotting. Default is `NULL`.
+#' @param pseudotime The name of the column in the colData of `sce` that contains the pseudotime data. Default is `"slingPseudotime"`.
+#' @param ... Additional parameters to be passed to `ggplot2` and other plot settings.
+#'
+#' @return A `ggplot` object representing the pseudotime visualization.
+#'
+#' @examples
+#' p <- pseudo_plot(sce = sce, reduction = "UMAP")
+#' print(p)
+#'
+#' @import ggplot2
+#' @import SingleCellExperiment
+#' @importFrom tidyr pivot_longer
+#' @importFrom viridis scale_color_viridis_c
+#'
+#' @export
+pseudo_plot <- function(
+    sce,
+    reduction = NULL,
+    pseudotime.data = "slingPseudotime",
+    lineage = NULL,
+    ...){
+  
+  library(SingleCellExperiment)
+  library(ggplot2)
+  library(tidyr)
+  
+  reduction <- match.arg(reduction, c("UMAP", "PCA", "tSNE"))
+  
+  if (!is(sce, "SingleCellExperiment")) {
+    stop("The input must be a SingleCellExperiment object.")
+  }
+  
+  if (!pseudotime.data %in% colnames(colData(sce))) {
+    stop("SCE lacks pseudotime data. Please run 'runSlingshot' before this function.")
+  }
+  
+  ## Extract pseudotime data
+  sling <- sce$slingPseudotime
+  sling$cell <- rownames(sling)
+  d2 <- tidyr::pivot_longer(sling, 
+                            cols = starts_with("Lineage"),
+                            names_to = "Lineage", 
+                            values_to = "Pseudotime")
+  
+  ## Extract reduction data
+  reduction_data <- as.data.frame(reducedDims(sce)[[reduction]])
+  reduction_data$cell <- rownames(reduction_data)
+  
+  ## Merge pseudotime data and reduction data
+  merged <- merge(d2, reduction_data, by = "cell")
+  
+  ## If a specific lineage is provided, filter the data and set title
+  if (!is.null(lineage)) {
+    if (!lineage %in% unique(d2$Lineage)) {
+      stop(paste("The provided lineage '", lineage, "' is not valid. Please choose one from:", 
+                 paste(unique(d2$Lineage), collapse = ", "), "."))
+    }
+    merged <- merged[merged$Lineage == lineage, ]
+    plot_title <- paste(lineage)
+  } else {
+    plot_title <- NULL
+  }
+  
+  ## Use ggplot2 to plot pseudotime data of cells
+  p <- ggplot(merged, aes(x = umap_1, y = umap_2, color = Pseudotime)) +
+    geom_point() +
+    theme_bw() +
+    scale_color_viridis_c(option = "C") +
+    theme(
+      axis.text = element_blank(),    
+      axis.title = element_blank(),   
+      axis.ticks = element_blank(),   
+      panel.grid = element_blank(),   
+      strip.text = element_text(size = 12, face = "bold"),  
+      legend.position = "right",      
+      legend.title = element_text(size = 12),  
+      legend.text = element_text(size = 10),   
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14) 
+    ) +
+    labs(
+      title = plot_title,  
+      x = NULL,      
+      y = NULL       
+    )
+  
+  ## If a specific lineage is selected, remove facet_wrap
+  if (is.null(lineage)) {
+    p <- p + facet_wrap(~Lineage, ncol = 3)
+  }
+  
+  return(p)
+}
+
+
 #' Generate gene expression curves across pseudotime
 #'
 #' This function visualizes the expression of specified genes across pseudotime using either 
@@ -11,7 +189,7 @@
 #' @param pseudotime.data The column name in the SingleCellExperiment object containing pseudotime data (default: "slingPseudotime").
 #' @param method A character vector specifying the method for curve fitting. Options are "smooth" (default) or "gam" (Generalized Additive Model).
 #' @param point A logical value indicating whether to include points for individual cells (default: FALSE).
-#' @param line.size Line thickness for the plot (default: NULL).
+#' @param line.size Line thickness for the plot (default: 0.8).
 #' @param alpha Transparency for the points in the plot (default: 0.5).
 #' @param size Size of the points in the plot (default: 1).
 #' @param ncol Number of columns to use in facet_wrap (default: NULL).
@@ -27,7 +205,7 @@ Genecurve_plot <- function(
     pseudotime.data = "slingPseudotime",
     method = c("smooth","gam"),
     point = FALSE,
-    line.size = NULL,
+    line.size = 0.8,
     alpha = 0.5,
     size = 1,
     ncol = NULL,
@@ -50,6 +228,7 @@ Genecurve_plot <- function(
   ## extract pseudotime data
   pseudo <- colData(sce)[[pseudotime.data]]
   pseudo <- as.data.frame(pseudo)
+  fate_names <- colnames(pseudo) 
   
   ## extract gene expression data
   gdf <- t(assay(sce, assay_name))
@@ -84,10 +263,11 @@ Genecurve_plot <- function(
     fate_names <- colnames(pseudo)
   }
   
-  ## perform GSM analysis
+  ## perform GAM analysis
   if (method[1] == "gam") {
     predictions <- gam_analysis_SCE(d2, features, fate_names)
-  } else {
+  } 
+  else {
     predictions <- d2
   }
   
@@ -107,23 +287,23 @@ Genecurve_plot <- function(
 #' @param method A character vector specifying the plot method, either "smooth" or "gam".
 #' @param line.size Size of the plot line (default: NULL).
 #' @param se A logical value indicating whether to display the standard error (default: TRUE).
-#' @param data_for_plot The data used for plotting, either predictions or raw data.
+#' @param plot_data The data used for plotting, either predictions or raw data.
 #'
 #' @return A ggplot object with the added plot layer.
 #' @export
-add_plot_layer <- function(p, method, line.size, se, data_for_plot) {
+add_plot_layer <- function(p, method, line.size, se, plot_data) {
   
   if (method[1] == "gam") {
     ## using prediction result to plot
     p <- p + geom_line(
-      data = data_for_plot,
+      data = plot_data,
       aes(x = Pseudotime, y = Predicted, color = cell_fate),
       size = line.size)  
   } 
   else if (method[1] == "smooth") {
     # using actual gene expression data to plot
     p <- p + geom_smooth(
-      data = data_for_plot,
+      data = plot_data,
       aes(x = Pseudotime, y = Expression, color = cell_fate),
       size = line.size, se = se)  
   }
@@ -165,7 +345,7 @@ base_plot <- function(
       data = df_melt,
       aes(Pseudotime, Expression, color = cell_fate),
       alpha = alpha, size = size,
-      shape = 16)
+      shape = 15)
   }
   
   return(p)
