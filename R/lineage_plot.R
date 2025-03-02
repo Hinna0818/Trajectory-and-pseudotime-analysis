@@ -19,11 +19,11 @@
 #' 
 #' @examples
 #' \dontrun{
-#' p <- CDP(sce = sce, group = "label", reduction = "UMAP")
+#‘ pancreas <- readRDS("./pancreas_sub_sce.rds")
+#’ pancreas <- RunSlingshot(sce = pancreas, group = "label", reduction = "UMAP")
+#' p <- lineage_plot(sce = pancreas, group = "label", reduction = "UMAP")
 #' print(p)
 #' }
-#' 
-#' @seealso \code{\link{sc_dim}}, \code{\link{sc_geom_point}}, \code{\link{slingshot}}
 #' 
 #' @import slingshot
 #' @import SingleCellExperiment
@@ -31,12 +31,12 @@
 #' @import ggsc
 #' 
 #' @export
-CDP <- function(
+lineage_plot <- function(
     sce,
     dims = c(1, 2),
     group,
     reduction = "UMAP",
-    lineages = names(sce@metadata$slingshot_info@curves),
+    lineages = NULL,
     cells = NULL,
     slot = "data",
     mapping = NULL,
@@ -48,13 +48,13 @@ CDP <- function(
   library(ggplot2)
   library(ggsc)
   
+  if(is.null(lineages)){
+    lineages <- names(sce@metadata$slingshot_info@curves)
+  }
+  
   ## set the lineage colors (adjust to ensure enough colors for the number of lineages)
   num_trajectories <- length(sce@metadata$slingshot_info@lineages)
   
-  lineage_colors <- RColorBrewer::brewer.pal(min(num_trajectories, 8), "Set1")
-  if (num_trajectories > 8) {
-    lineage_colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set1"))(num_trajectories)
-  }
   
   ## set the lineage data for the input of ggplot2
   lineage_data <- data.frame()
