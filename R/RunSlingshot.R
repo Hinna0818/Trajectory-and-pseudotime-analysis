@@ -4,32 +4,30 @@
 #' 
 #' @param sce A SingleCellExperiment object.
 #' @param group The name of the column in colData(sce) containing cluster labels.
-#' @param reduction_name The name of the reduced dimension method in reducedDims(sce) (e.g., "UMAP" or "PCA").
+#' @param reduction The name of the reduced dimension method in reducedDims(sce) (e.g., "UMAP" or "PCA").
 #' @param start_cluster Optional. The starting cluster for trajectory inference. Default is NULL.
 #' @param end_cluster Optional. The ending cluster for trajectory inference. Default is NULL.
 #' @param reverse A logical value indicating whether to reverse the pseudotime. Default is FALSE.
 #' @param align_start A logical value indicating whether to align the starting pseudotime values at the maximum pseudotime. Default is FALSE.
 #' @param seed Random seed for reproducibility.
-#' @param show_plot Logical. If TRUE, plots the trajectories. Default is TRUE.
 #' 
-#' @importFrom slingshot slingPseudotime
+#' @importFrom slingshot slingshot slingPseudotime slingBranchID
 #' @importFrom SingleCellExperiment colData reducedDims
+#' @importFrom graphics plot lines
 #' @return A SingleCellExperiment object with added pseudotime information in colData.
 #' @export
-
 
 RunSlingshot <- function(
     sce,
     group,
-    reduction_name = "UMAP",
+    reduction = "UMAP",
     start_cluster = NULL,
     end_cluster = NULL,
     reverse = FALSE,
     align_start = FALSE,
-    seed = 2025,
-    show_plot = TRUE){
+    seed = 2025){
   
-  reductition_name <- match.arg(reduction_name, c("UMAP", "PCA", "tSNE"))
+  reduction <- match.arg(reduction, c("UMAP", "PCA", "tSNE"))
   
   ## check the type of data
   if (!is(sce, "SingleCellExperiment")) {
@@ -42,18 +40,16 @@ RunSlingshot <- function(
   }
   
   ## check the reduction result in sce obj
-  if (!reduction_name %in% names(reducedDims(sce))) {
+  if (!reduction %in% names(reducedDims(sce))) {
     stop("The specified reduction method does not exist in reducedDims(sce).")
   }
-  
-  
+
   ## run slingshot
   set.seed(seed)
   
   sce <- slingshot::slingshot(data = sce, clusterLabels = group, 
-                              reducedDim = reduction_name, start.clus = start_cluster, 
+                              reducedDim = reduction, start.clus = start_cluster, 
                               end.clus = end_cluster)
-  
   
   ## reverse the pseudotime and align the start_cell to the maximum if necessary
   slingpseudotime_cols <- grep("^slingPseudotime", colnames(colData(sce)), value = TRUE)
@@ -70,7 +66,17 @@ RunSlingshot <- function(
     }
   }
   colData(sce)[, slingpseudotime_cols] <- df
-                  
+  
+  ssds <- slingshot::SlingshotDataSet(sce) 
+  
+  # Store Slingshot results
+  colData(sce)$slingPseudotime <- as.data.frame(slingshot::slingPseudotime(ssds))
+  colData(sce)$slingBranchID <- slingshot::slingBranchID(ssds)
+  metadata(sce)$slingshot_info <- ssds
+  
+  # Store PseudotimeOrdering S4 object in metadata
+  metadata(sce)$slingshot <- sce$slingshot
+  sce$slingshot <- NULL
+  
   return(sce)
 }
-
