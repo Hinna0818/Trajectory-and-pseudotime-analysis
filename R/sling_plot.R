@@ -396,7 +396,7 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
 #' Plot gene expression heatmap along pseudotime trajectory
 #'
 #' This function generates a heatmap of gene expression along a given pseudotime trajectory, 
-#' with options for scaling, sorting, and lineage selection. It also handles genes with all 
+#' with options for scaling, sorting, clustering decision, and lineage selection. It also handles genes with all 
 #' `NaN` expression values by issuing a warning and removing them from the analysis.
 #'
 #' @param sce A `SingleCellExperiment` object containing gene expression data and pseudotime information.
@@ -406,6 +406,9 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
 #' @param lineage A string specifying the lineage (cell fate) for the pseudotime trajectory. Default is `NULL`, in which case the first column of the pseudotime data is used.
 #' @param scale A logical indicating whether to scale the gene expression values. Default is `TRUE`.
 #' @param sort A logical indicating whether to sort genes by gradient of expression. Default is `TRUE`.
+#' @param cluster_columns A logical indicating whether to perform hierarchical clustering on cells' pseudotime.  Default is `FALSE`.
+#' @param cluster_rows A logical indicating whether to perform hierarchical clustering on gene expressions.  Default is `FALSE`.
+#'
 #'
 #' @return A `ComplexHeatmap` object representing the gene expression heatmap.
 #'
@@ -417,9 +420,16 @@ gam_analysis_SCE <- function(df_melt, features, fate_names) {
 #'
 #' @examples
 #' genes <- unique(rownames(sce)) |> head(10)
-#' pseudo_heatmap(sce, features = genes, lineage = "Lineage1")
+#' 
+#' ## Default: order x-axis by pseudotime and choose not to cluster cells or genes
+#' p1 <- pseudo_heatmap(sce, features = genes, lineage = "Lineage2")
+#'
+#' ## user can decide to cluster cells (which will break the sorted pseudotime order) or genes by:
+#' p2 <- pseudo_heatmap(sce, features = genes, lineage = "Lineage2", cluster_columns = TRUE)
+#' p3 <- pseudo_heatmap(sce, features = genes, lineage = "Lineage2", cluster_rows = TRUE, sort = FALSE)
 #'
 #' @export
+
 pseudo_heatmap <- function(
     sce, 
     features,
@@ -427,7 +437,9 @@ pseudo_heatmap <- function(
     pseudotime.data = "slingPseudotime",
     lineage = NULL,
     scale = TRUE,
-    sort = TRUE){
+    sort = TRUE,
+    cluster_columns = FALSE, 
+    cluster_rows = FALSE) {  
   
   library(ggplot2)
   library(reshape2)
@@ -435,17 +447,22 @@ pseudo_heatmap <- function(
   library(ComplexHeatmap)
   library(dplyr)
   
-  if( !is(sce, "SingleCellExperiment")){
+  if (!is(sce, "SingleCellExperiment")){
     stop("The input must be a SingleCellExperiment object.")
   }
   
-  if( !pseudotime.data %in% colnames(colData(sce))){
+  if (!pseudotime.data %in% colnames(colData(sce))){
     stop("SCE lacks pseudotime data. Please run 'runSlingshot' before this function.")
   }
   
-  if( !"logcounts" %in% assayNames(sce)){
+  if(! "logcounts" %in% assayNames(sce)){
     sce <- NormalizeData(sce)
   }
+  
+  if (cluster_rows && sort) {
+    stop("Both `cluster_rows = TRUE` and `sort = TRUE` are set. These options modify row (gene) order differently. Please choose one.")
+  }
+  
   
   ## extract pseudotime data
   if (is.null(features) || length(features) == 0) {
@@ -466,20 +483,18 @@ pseudo_heatmap <- function(
   colnames(gene_expression) <- features
   
   ## prepare lineage input
-  ## when lineage is not provided, use the first cell fate name as default
   if (is.null(lineage)) {
     lineage <- fate_names[1]
   }
   
-  if ( !lineage %in% fate_names) {
+  if (!lineage %in% fate_names) {
     stop(paste("The provided lineage '", lineage, "' is not valid. Please choose one from the following cell fates:", paste(fate_names, collapse = ", "), "."))
   }
   
   pseudo_new <- pseudo[, lineage, drop = FALSE]
   df <- cbind(pseudo_new, gene_expression)
   
-  
-  ## melt df to the format which is prepared for ploting heatmap
+  ## melt df to the format which is prepared for plotting heatmap
   df_melt_gene <- reshape2::melt(
     df, 
     id.vars = colnames(pseudo_new),
@@ -490,7 +505,7 @@ pseudo_heatmap <- function(
   
   df_melt <- reshape2::melt(
     df_melt_gene, 
-    d.vars = c("Gene", "Expression"),
+    id.vars = c("Gene", "Expression"),
     measure.vars = lineage,
     variable.name = "cell_fate",
     value.name = "Pseudotime"
@@ -499,11 +514,10 @@ pseudo_heatmap <- function(
   df_melt$Gene <- factor(df_melt$Gene, levels = unique(df_melt$Gene))
   df_melt <- na.omit(df_melt)
   
-  
   ## predict gene expression
   predictions <- gam_analysis_SCE(df_melt = df_melt, features = features, fate_names = lineage)
   
-  if(scale){
+  if (scale){
     predictions$Predicted <- ave(predictions$Predicted, predictions$Gene, FUN = rescale)
   }
   
@@ -521,9 +535,8 @@ pseudo_heatmap <- function(
     heatmap_matrix <- heatmap_matrix[!nan_genes, , drop = FALSE]
   }
   
-  
   ## choose whether to sort the matrix
-  if(sort && nrow(heatmap_matrix) > 1){
+  if (sort && nrow(heatmap_matrix) > 1){
     gradient_scores <- apply(heatmap_matrix, 1, compute_gradient)
     
     sort_df <- data.frame(
@@ -542,9 +555,9 @@ pseudo_heatmap <- function(
     }
   }
   
+  
   ## gene expression heatmap
   title_fill <- ifelse(scale, "Relative\nExpression", "Expression")
-  
   
   p <- ComplexHeatmap::Heatmap(heatmap_matrix, 
                                name = "Expression", 
@@ -557,10 +570,13 @@ pseudo_heatmap <- function(
                                column_title_gp = gpar(fontsize = 14, fontface = "bold"),
                                row_title = "Gene",
                                row_title_gp = gpar(fontsize = 12, fontface = "bold"),
+                               cluster_columns = cluster_columns,
+                               cluster_rows = cluster_rows,
                                heatmap_legend_param = list(title = title_fill))
   
   return(p)
 }
+
 
 
 #' Rescale values to the range [0, 1]
