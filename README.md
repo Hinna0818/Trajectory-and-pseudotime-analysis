@@ -1,14 +1,12 @@
 # Trajectory-and-pseudotime-analysis
 
 ## Introduction
-Trajectory and pseudotime analysis for sclet
+Trajectory and pseudotime analysis for R package 'sclet'(https://github.com/YuLab-SMU/sclet)
 
-## Including packages and algorithm
-Monocle3  
+## ref packages
+Monocle2/3  
 Slingshot  
-Palantir  
-SCP  
-SeuratExtend
+Palantir(to be continued...)  
 
 ## References
 https://cole-trapnell-lab.github.io/monocle3/docs/introduction/
